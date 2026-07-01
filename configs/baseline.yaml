@@ -1,0 +1,39 @@
+model:
+  num_classes: 40
+  num_points: 1024
+  T: 1           # training timesteps (trained-less paradigm)
+  T_infer: 4     # inference timesteps
+  V_th: 0.5
+  tau: 0.25      # membrane decay factor (paper notation)
+  dropout: 0.3
+
+encoding:
+  type: direct
+  Ns: 1024       # unused for direct encoding, here for consistency
+
+optimizer:
+  type: Adam
+  lr: 0.001
+  weight_decay: 1.0e-4
+
+scheduler:
+  type: CosineAnnealingLR
+  T_max: 200
+
+training:
+  epochs: 200
+  batch_size: 16
+  label_smoothing: 0.2
+  reg_weight: 1
+  use_amp: true
+  grad_accum: 1
+
+data:
+  root: data/
+  num_workers: 4
+  augmentation:
+    random_point_dropout: true
+    random_scale: [0.8, 1.25]
+    random_shift: 0.1
+    jitter_sigma: 0.01
+    jitter_clip: 0.05

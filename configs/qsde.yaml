@@ -1,0 +1,44 @@
+# Q-SDE configuration — inherits baseline structure but overrides encoding and model T.
+# Q-SDE trains with T=4 directly (affordable because Ns=512 < 1024 baseline points).
+
+model:
+  num_classes: 40
+  num_points: 1024
+  T: 4           # train with T=4 (Q-SDE makes this memory-affordable)
+  T_infer: 4
+  V_th: 0.5
+  tau: 0.25
+  dropout: 0.3
+
+encoding:
+  type: qsde
+  Ns: 512        # output points per timestep (best from SPT ablation)
+  T: 4           # must match model.T
+  T_infer: 4
+
+optimizer:
+  type: Adam
+  lr: 0.001
+  weight_decay: 1.0e-4
+
+scheduler:
+  type: CosineAnnealingLR
+  T_max: 200
+
+training:
+  epochs: 200
+  batch_size: 16
+  label_smoothing: 0.2
+  reg_weight: 1
+  use_amp: true   # mandatory for T=4 on 8 GB VRAM
+  grad_accum: 1
+
+data:
+  root: data/
+  num_workers: 4
+  augmentation:
+    random_point_dropout: true
+    random_scale: [0.8, 1.25]
+    random_shift: 0.1
+    jitter_sigma: 0.01
+    jitter_clip: 0.05
