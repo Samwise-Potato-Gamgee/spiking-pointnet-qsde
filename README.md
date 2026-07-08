@@ -8,20 +8,20 @@
 
 | Model | Encoding | Train T | Infer T | ModelNet40 OA (%) | mAcc (%) |
 |-------|----------|---------|---------|-------------------|----------|
-| ANN PointNet (reference) | — | — | — | 89.2 | 86.0 |
-| Spiking PointNet (paper) | Direct | 1 | 4 | 88.61 | — |
+| ANN PointNet (reference) | n/a | n/a | n/a | 89.2 | 86.0 |
+| Spiking PointNet (paper) | Direct | 1 | 4 | 88.61 | n/a |
 | **Ours: Baseline\*** | Direct | 1 | 4 | **79.94** | **71.99** |
 | **Ours: + Q-SDE-512\*** | Q-SDE | 4 | 4 | **82.54** | **75.85** |
 
-\* Independent re-implementation based on the paper description — not cloned from the official repository. The ~8–9% gap vs the paper is expected given implementation differences and hyperparameter sensitivity in SNN training. Q-SDE encoding improves OA by **+2.6%** and mAcc by **+3.86%** over the baseline.
+\* Independent re-implementation based on the paper description, not cloned from the official repository. The ~8-9% gap vs the paper is expected given implementation differences and hyperparameter sensitivity in SNN training. Q-SDE encoding improves OA by **+2.6%** and mAcc by **+3.86%** over the baseline.
 
 ### Confusion Matrices
 
-**Baseline (Direct Encoding) — 79.94% OA**
+**Baseline (Direct Encoding) -- 79.94% OA**
 
 ![Baseline Confusion Matrix](results/confusion_baseline_run1_best.png)
 
-**Q-SDE-512 — 82.54% OA**
+**Q-SDE-512 -- 82.54% OA**
 
 ![Q-SDE Confusion Matrix](results/confusion_qsde_512_run1_last.png)
 
@@ -31,32 +31,32 @@
 
 ### Background: Spiking Neural Networks for Point Clouds
 
-Standard deep learning uses floating-point multiply-accumulate (MAC) operations at every neuron — expensive in both compute and energy. **Spiking Neural Networks (SNNs)** replace continuous activations with binary spikes (0 or 1). When a neuron spikes, downstream neurons perform only an **addition** (AC), not a multiply-add. This makes SNNs theoretically 5–8× more energy-efficient than equivalent ANNs on neuromorphic hardware.
+Standard deep learning uses floating-point multiply-accumulate (MAC) operations at every neuron, expensive in both compute and energy. **Spiking Neural Networks (SNNs)** replace continuous activations with binary spikes (0 or 1). When a neuron spikes, downstream neurons perform only an **addition** (AC), not a multiply-add. This makes SNNs theoretically 5-8x more energy-efficient than equivalent ANNs on neuromorphic hardware.
 
 **Spiking PointNet** (NeurIPS 2023) applies this idea to 3D point cloud understanding. It takes the classic PointNet architecture for ModelNet40 classification and replaces every ReLU activation with a **Leaky Integrate-and-Fire (LIF)** spiking neuron. The LIF neuron accumulates input into a membrane potential over time, firing a spike when the potential crosses a threshold, then resetting.
 
 ### The Trained-Less Paradigm
 
-A key insight from the paper: train with **T=1 timestep** but evaluate with **T=4 timesteps**. Because LIF neurons carry membrane state across timesteps, running inference for more steps gives the network more time to process the input — effectively improving accuracy without any retraining. This is unique to SNNs and has no ANN equivalent.
+A key insight from the paper: train with **T=1 timestep** but evaluate with **T=4 timesteps**. Because LIF neurons carry membrane state across timesteps, running inference for more steps gives the network more time to process the input, effectively improving accuracy without any retraining. This is unique to SNNs and has no ANN equivalent.
 
 ### Q-SDE: Smarter Temporal Encoding
 
-The baseline approach feeds the same point cloud to the network T times (direct encoding) — redundant by design. **Q-SDE (Queue-Driven Sampling Direct Encoding)**, borrowed from the Spiking Point Transformer (AAAI 2025), creates T *diverse* subsets instead:
+The baseline approach feeds the same point cloud to the network T times (direct encoding), redundant by design. **Q-SDE (Queue-Driven Sampling Direct Encoding)**, borrowed from the Spiking Point Transformer (AAAI 2025), creates T *diverse* subsets instead:
 
 - **Timestep 0**: Sample Ns points from the full cloud using Farthest Point Sampling (FPS)
 - **Timestep i**: Drop the oldest Np points from the previous window, sample Np fresh points from the unsampled remainder via FPS, slide the window forward
 
-This gives each timestep a different geometric view of the object, reducing temporal redundancy and acting as spatial data augmentation across time — without changing any model weights.
+This gives each timestep a different geometric view of the object, reducing temporal redundancy and acting as spatial data augmentation across time without changing any model weights.
 
 ### This Project
 
-We re-implement Spiking PointNet from scratch in PyTorch + SpikingJelly based on the paper description, then swap in Q-SDE encoding to measure the accuracy improvement. Everything — the LIF neuron, T-Net spatial transformers, shared MLP blocks, FPS sampling, FIFO queue logic, training loop with AMP and gradient accumulation — is implemented from scratch.
+We re-implement Spiking PointNet from scratch in PyTorch + SpikingJelly based on the paper description, then swap in Q-SDE encoding to measure the accuracy improvement. Everything -- the LIF neuron, T-Net spatial transformers, shared MLP blocks, FPS sampling, FIFO queue logic, training loop with AMP and gradient accumulation -- is implemented from scratch.
 
 Notable implementation findings during development:
 
 - **Max-pooling saturates binary spikes**: With ~30% per-point firing rate over 1024 points, max-pool collapses to all-1s across all channels, eliminating spatial variance. Mean-pooling (firing rate) was used throughout instead.
 - **T-Net zero-init bug**: Zero-initialized final FC layer in T-Net produced identity transforms with zero STN loss. Fixed with small normal initialization (std=1e-3).
-- **Temporal accumulation**: Classifier LIF neurons step sequentially across T timesteps, accumulating membrane potential — the T dimension is genuine time, not a batch axis.
+- **Temporal accumulation**: Classifier LIF neurons step sequentially across T timesteps, accumulating membrane potential. The T dimension is genuine time, not a batch axis.
 
 ---
 
@@ -72,10 +72,10 @@ spiking-pointnet-qsde/
 │   ├── models/
 │   │   ├── lif_neuron.py       # LIF neuron wrapping SpikingJelly, sigmoid surrogate gradient
 │   │   ├── pointnet_utils.py   # SharedMLP (Linear+BN+LIF), TNet, STN regularization loss
-│   │   └── spiking_pointnet.py # Full model: T-Net → MLP → T-Net → MLP → pool → classifier
+│   │   └── spiking_pointnet.py # Full model: T-Net -> MLP -> T-Net -> MLP -> pool -> classifier
 │   ├── encoding/
-│   │   ├── direct_encoding.py  # Baseline: repeat point cloud T times → [B, T, N, 3]
-│   │   └── qsde.py             # Q-SDE: FIFO queue FPS → [B, T, Ns, 3]
+│   │   ├── direct_encoding.py  # Baseline: repeat point cloud T times -> [B, T, N, 3]
+│   │   └── qsde.py             # Q-SDE: FIFO queue FPS -> [B, T, Ns, 3]
 │   ├── data/
 │   │   └── modelnet40.py       # Dataset loader, normalization, augmentation, DataLoader
 │   ├── training/
@@ -89,7 +89,7 @@ spiking-pointnet-qsde/
 ├── scripts/
 │   ├── train.py                # Main training entry point
 │   ├── evaluate.py             # Evaluate checkpoint: OA, mAcc, SynOps, confusion matrix
-│   └── download_data.py        # ModelNet40 download (may timeout — see Dataset section)
+│   └── download_data.py        # ModelNet40 download (may timeout, see Dataset section)
 │
 ├── notebooks/
 │   └── results_analysis.ipynb  # Training curves, OA bar chart, comparison table
@@ -169,13 +169,13 @@ data/
     └── shape_names.txt
 ```
 
-> **Note**: The `.h5` files must be inside `data/modelnet40_ply_hdf5_2048/` — not directly in `data/`. The `train_files.txt` expects this exact path.
+> **Note**: The `.h5` files must be inside `data/modelnet40_ply_hdf5_2048/` and not directly in `data/`. The `train_files.txt` expects this exact path.
 
 ---
 
 ## Training
 
-### Baseline — Spiking PointNet (direct encoding)
+### Baseline -- Spiking PointNet (direct encoding)
 
 ```bash
 python scripts/train.py \
@@ -277,29 +277,29 @@ compare_models(
 
 ## Key Implementation Details
 
-**LIF neuron**: SpikingJelly's `LIFNode` with sigmoid surrogate gradient (k=4). Hard reset after each spike. Paper's decay factor τ=0.25 is converted to SpikingJelly's time constant via `τ_sj = 1 / (1 - 0.25) = 4/3`.
+**LIF neuron**: SpikingJelly's `LIFNode` with sigmoid surrogate gradient (k=4). Hard reset after each spike. Paper's decay factor tau=0.25 is converted to SpikingJelly's time constant via `tau_sj = 1 / (1 - 0.25) = 4/3`.
 
-**T-Net**: Spatial transformer using SharedMLP + LIF neurons throughout. Mean-pooling over points — max-pooling saturates binary spikes to all-1s over 1024 points, eliminating channel variance. Orthogonality regularization: `L_reg = ||I - A·Aᵀ||²_F × 0.001`.
+**T-Net**: Spatial transformer using SharedMLP + LIF neurons throughout. Mean-pooling over points -- max-pooling saturates binary spikes to all-1s over 1024 points, eliminating channel variance. Orthogonality regularization: `L_reg = ||I - A*A^T||^2_F * 0.001`.
 
 **Q-SDE**: Implemented from scratch without `torch_cluster`. Manual FPS in pure PyTorch. FIFO queue via boolean mask over original N points. Batched over batch dimension via loop.
 
-**Temporal accumulation**: Classifier LIF neurons (`lif1`, `lif2`) step sequentially across T timesteps — T is genuine time, not a batch axis. Feature extraction MLPs flatten T into the batch dimension (each timestep processed independently via shared weights).
+**Temporal accumulation**: Classifier LIF neurons (`lif1`, `lif2`) step sequentially across T timesteps -- T is genuine time, not a batch axis. Feature extraction MLPs flatten T into the batch dimension (each timestep processed independently via shared weights).
 
-**Training**: AMP (mixed precision) enabled by default — required to fit T=4 within 8 GB VRAM. `functional.reset_net()` called at the start of every forward pass to clear LIF membrane states between samples.
+**Training**: AMP (mixed precision) enabled by default, required to fit T=4 within 8 GB VRAM. `functional.reset_net()` called at the start of every forward pass to clear LIF membrane states between samples.
 
 ---
 
 ## References
 
-1. **Spiking PointNet** — Zhang et al., NeurIPS 2023
+1. **Spiking PointNet** -- Zhang et al., NeurIPS 2023
    https://arxiv.org/abs/2310.06232
 
-2. **Spiking Point Transformer (SPT)** — AAAI 2025
+2. **Spiking Point Transformer (SPT)** -- AAAI 2025
    Q-SDE encoding (Algorithm 1) borrowed from this work.
    SPT reports ModelNet40 OA = 91.43% with full transformer + HD-IF + Q-SDE.
 
-3. **PointNet** — Qi et al., CVPR 2017
+3. **PointNet** -- Qi et al., CVPR 2017
    https://arxiv.org/abs/1612.00593
 
-4. **SpikingJelly** — Fang et al.
+4. **SpikingJelly** -- Fang et al.
    https://github.com/fangwei123456/spikingjelly
