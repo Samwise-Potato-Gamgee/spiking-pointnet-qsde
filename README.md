@@ -11,7 +11,7 @@
 | ANN PointNet (reference) | — | — | — | 89.2 | 86.0 | 1× |
 | Spiking PointNet (paper) | Direct | 1 | 4 | 88.61 | — | ~8× |
 | **Ours: Reproduction** | Direct | 1 | 4 | 79.94 | 71.99 | — |
-| **Ours: + Q-SDE-512** | Q-SDE | 4 | 4 | TBD | TBD | TBD |
+| **Ours: + Q-SDE-512** | Q-SDE | 4 | 4 | 82.54 | 75.85 | — |
 | **Ours: + Q-SDE-768** | Q-SDE | 4 | 4 | TBD | TBD | TBD |
 
 *Results will be filled in after training completes. See `results/` for CSVs and plots.*

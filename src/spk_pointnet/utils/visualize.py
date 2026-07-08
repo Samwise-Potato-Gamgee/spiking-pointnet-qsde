@@ -111,7 +111,7 @@ def plot_confusion_matrix(
     preds = np.asarray(preds, dtype=np.int64)
     labels = np.asarray(labels, dtype=np.int64)
 
-    num_classes = max(labels.max(), preds.max()) + 1
+    num_classes = int(max(labels.max(), preds.max())) + 1
 
     cm = confusion_matrix(labels, preds, labels=list(range(num_classes)))
 
@@ -130,7 +130,7 @@ def plot_confusion_matrix(
         class_names = [str(i) for i in range(num_classes)]
 
     # For 40 classes, hide individual cell values and use smaller font
-    annot = num_classes <= 20
+    annot = bool(num_classes <= 20)
     figsize = (20, 18) if num_classes > 20 else (14, 12)
 
     fig, ax = plt.subplots(figsize=figsize)
