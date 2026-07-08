@@ -8,11 +8,6 @@ checkpoints/
 # Weights & Biases
 wandb/
 
-# Results (plots and csvs are generated)
-results/*.png
-results/*.csv
-results/*.pdf
-
 # Python
 __pycache__/
 *.py[cod]

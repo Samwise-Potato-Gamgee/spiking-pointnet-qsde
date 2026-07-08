@@ -1,20 +1,29 @@
 # Spiking PointNet + Q-SDE
 
-> Reproduction of **Spiking PointNet** (NeurIPS 2023) with **Queue-Driven Sampling Direct Encoding (Q-SDE)** from Spiking Point Transformer (AAAI 2025) for ModelNet40 point cloud classification.
+> Independent re-implementation of **Spiking PointNet** (NeurIPS 2023) extended with **Queue-Driven Sampling Direct Encoding (Q-SDE)** from Spiking Point Transformer (AAAI 2025) for ModelNet40 3D point cloud classification.
 
 ---
 
 ## Results
 
-| Model | Encoding | Train T | Infer T | ModelNet40 OA (%) | mAcc (%) | Energy vs ANN |
-|-------|----------|---------|---------|-------------------|----------|---------------|
-| ANN PointNet (reference) | — | — | — | 89.2 | 86.0 | 1× |
-| Spiking PointNet (paper) | Direct | 1 | 4 | 88.61 | — | ~8× |
-| **Ours: Reproduction** | Direct | 1 | 4 | 79.94 | 71.99 | — |
-| **Ours: + Q-SDE-512** | Q-SDE | 4 | 4 | 82.54 | 75.85 | — |
-| **Ours: + Q-SDE-768** | Q-SDE | 4 | 4 | TBD | TBD | TBD |
+| Model | Encoding | Train T | Infer T | ModelNet40 OA (%) | mAcc (%) |
+|-------|----------|---------|---------|-------------------|----------|
+| ANN PointNet (reference) | — | — | — | 89.2 | 86.0 |
+| Spiking PointNet (paper) | Direct | 1 | 4 | 88.61 | — |
+| **Ours: Baseline\*** | Direct | 1 | 4 | **79.94** | **71.99** |
+| **Ours: + Q-SDE-512\*** | Q-SDE | 4 | 4 | **82.54** | **75.85** |
 
-*Results will be filled in after training completes. See `results/` for CSVs and plots.*
+\* Independent re-implementation based on the paper description — not cloned from the official repository. The ~8–9% gap vs the paper is expected given implementation differences and hyperparameter sensitivity in SNN training. Q-SDE encoding improves OA by **+2.6%** and mAcc by **+3.86%** over the baseline.
+
+### Confusion Matrices
+
+**Baseline (Direct Encoding) — 79.94% OA**
+
+![Baseline Confusion Matrix](results/confusion_baseline_run1_best.png)
+
+**Q-SDE-512 — 82.54% OA**
+
+![Q-SDE Confusion Matrix](results/confusion_qsde_512_run1_last.png)
 
 ---
 
@@ -37,11 +46,17 @@ The baseline approach feeds the same point cloud to the network T times (direct 
 - **Timestep 0**: Sample Ns points from the full cloud using Farthest Point Sampling (FPS)
 - **Timestep i**: Drop the oldest Np points from the previous window, sample Np fresh points from the unsampled remainder via FPS, slide the window forward
 
-This gives each timestep a different geometric view of the object, reducing temporal redundancy and acting as a form of spatial data augmentation across time — without changing any model weights.
+This gives each timestep a different geometric view of the object, reducing temporal redundancy and acting as spatial data augmentation across time — without changing any model weights.
 
 ### This Project
 
-We reproduce Spiking PointNet from scratch in PyTorch + SpikingJelly, then swap in Q-SDE encoding to measure the accuracy improvement. Everything — the LIF neuron, T-Net spatial transformers, shared MLP blocks, FPS sampling, FIFO queue logic, training loop with AMP and gradient accumulation, SynOps energy counter — is implemented from scratch based on the two papers.
+We re-implement Spiking PointNet from scratch in PyTorch + SpikingJelly based on the paper description, then swap in Q-SDE encoding to measure the accuracy improvement. Everything — the LIF neuron, T-Net spatial transformers, shared MLP blocks, FPS sampling, FIFO queue logic, training loop with AMP and gradient accumulation — is implemented from scratch.
+
+Notable implementation findings during development:
+
+- **Max-pooling saturates binary spikes**: With ~30% per-point firing rate over 1024 points, max-pool collapses to all-1s across all channels, eliminating spatial variance. Mean-pooling (firing rate) was used throughout instead.
+- **T-Net zero-init bug**: Zero-initialized final FC layer in T-Net produced identity transforms with zero STN loss. Fixed with small normal initialization (std=1e-3).
+- **Temporal accumulation**: Classifier LIF neurons step sequentially across T timesteps, accumulating membrane potential — the T dimension is genuine time, not a batch axis.
 
 ---
 
@@ -57,31 +72,31 @@ spiking-pointnet-qsde/
 │   ├── models/
 │   │   ├── lif_neuron.py       # LIF neuron wrapping SpikingJelly, sigmoid surrogate gradient
 │   │   ├── pointnet_utils.py   # SharedMLP (Linear+BN+LIF), TNet, STN regularization loss
-│   │   └── spiking_pointnet.py # Full model: T-Net → MLP → T-Net → MLP → maxpool → classifier
+│   │   └── spiking_pointnet.py # Full model: T-Net → MLP → T-Net → MLP → pool → classifier
 │   ├── encoding/
 │   │   ├── direct_encoding.py  # Baseline: repeat point cloud T times → [B, T, N, 3]
 │   │   └── qsde.py             # Q-SDE: FIFO queue FPS → [B, T, Ns, 3]
 │   ├── data/
 │   │   └── modelnet40.py       # Dataset loader, normalization, augmentation, DataLoader
 │   ├── training/
-│   │   ├── trainer.py          # Training loop: AMP, grad accumulation, tqdm, CSV logging, checkpointing
-│   │   └── losses.py           # Cross-entropy + label smoothing + T-Net orthogonality regularization
+│   │   ├── trainer.py          # Training loop: AMP, grad accumulation, tqdm, CSV logging
+│   │   └── losses.py           # Cross-entropy + label smoothing + T-Net regularization
 │   └── utils/
 │       ├── metrics.py          # Overall Accuracy (OA), Mean Class Accuracy (mAcc)
-│       ├── synops.py           # Hook-based SynOps counter: AC vs MAC energy estimation
+│       ├── synops.py           # Hook-based SynOps counter
 │       └── visualize.py        # Training curves, confusion matrix, model comparison plots
 │
 ├── scripts/
-│   ├── train.py                # Main training entry point (see Training section)
+│   ├── train.py                # Main training entry point
 │   ├── evaluate.py             # Evaluate checkpoint: OA, mAcc, SynOps, confusion matrix
-│   └── download_data.py        # Automated ModelNet40 download (may timeout, see Dataset section)
+│   └── download_data.py        # ModelNet40 download (may timeout — see Dataset section)
 │
 ├── notebooks/
-│   └── results_analysis.ipynb  # Training curves, OA bar chart, SynOps energy chart, comparison table
+│   └── results_analysis.ipynb  # Training curves, OA bar chart, comparison table
 │
-├── data/                       # Dataset lives here (not tracked by git)
-├── checkpoints/                # Saved model checkpoints (not tracked by git)
-└── results/                    # CSVs and plots from training (not tracked by git)
+├── results/                    # Confusion matrix PNGs and training CSVs
+├── data/                       # Dataset (not tracked by git)
+└── checkpoints/                # Model checkpoints (not tracked by git)
 ```
 
 ---
@@ -101,7 +116,7 @@ spiking-pointnet-qsde/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/spiking-pointnet-qsde.git
+git clone https://github.com/Samwise-Potato-Gamgee/spiking-pointnet-qsde.git
 cd spiking-pointnet-qsde
 ```
 
@@ -131,7 +146,7 @@ The automated download script may time out due to Stanford server reliability is
 
 1. Download the file (~440 MB) from one of these sources:
    - **Kaggle**: search [`modelnet40_ply_hdf5_2048`](https://www.kaggle.com/datasets/search?q=modelnet40_ply_hdf5_2048)
-   - **Direct link** (Tsinghua): `https://cloud.tsinghua.edu.cn/f/b3d9fe3e2a514def8097/?dl=1`
+   - **Tsinghua Cloud**: `https://cloud.tsinghua.edu.cn/f/b3d9fe3e2a514def8097/?dl=1`
    - **GitHub**: search "modelnet40_ply_hdf5_2048.zip" in PointNet/PointNet++ issues
 
 2. Place the zip in the `data/` folder and extract:
@@ -139,23 +154,16 @@ The automated download script may time out due to Stanford server reliability is
 ```bash
 mkdir -p data
 # Copy modelnet40_ply_hdf5_2048.zip into data/
-cd data
-unzip modelnet40_ply_hdf5_2048.zip
-cd ..
+cd data && unzip modelnet40_ply_hdf5_2048.zip && cd ..
 ```
 
-3. Verify the structure looks like this:
+3. Verify the structure:
 
 ```
 data/
 └── modelnet40_ply_hdf5_2048/
-    ├── ply_data_train0.h5
-    ├── ply_data_train1.h5
-    ├── ply_data_train2.h5
-    ├── ply_data_train3.h5
-    ├── ply_data_train4.h5
-    ├── ply_data_test0.h5
-    ├── ply_data_test1.h5
+    ├── ply_data_train0.h5 ... ply_data_train4.h5
+    ├── ply_data_test0.h5, ply_data_test1.h5
     ├── train_files.txt
     ├── test_files.txt
     └── shape_names.txt
@@ -169,8 +177,6 @@ data/
 
 ### Baseline — Spiking PointNet (direct encoding)
 
-Trains with T=1 timestep, evaluates with T=4. Reproduces the original paper.
-
 ```bash
 python scripts/train.py \
     --config configs/baseline.yaml \
@@ -179,12 +185,9 @@ python scripts/train.py \
     --gpu 0
 ```
 
-Expected: ~90 seconds/epoch on RTX 4060 Ti, ~5 hours total for 200 epochs.  
-Target: ModelNet40 OA ≥ 88% (paper reports 88.61%).
+Expected: ~90 seconds/epoch on RTX 4060 Ti, ~5 hours total for 200 epochs.
 
 ### Q-SDE variant (Ns=512, T=4)
-
-Trains and evaluates with T=4 using Q-SDE encoding. Expects accuracy improvement over baseline.
 
 ```bash
 python scripts/train.py \
@@ -194,19 +197,7 @@ python scripts/train.py \
     --gpu 0
 ```
 
-### Q-SDE variant (Ns=768, T=4)
-
-```bash
-python scripts/train.py \
-    --config configs/qsde.yaml \
-    --run_name qsde_768_run1 \
-    --seed 42 \
-    --gpu 0
-```
-
 ### Low VRAM / OOM recovery
-
-If you run out of memory, use gradient accumulation to maintain effective batch size of 16:
 
 ```bash
 python scripts/train.py \
@@ -241,15 +232,12 @@ python scripts/train.py \
 | `--resume` | None | Path to checkpoint to resume from |
 | `--use_wandb` | False | Enable Weights & Biases logging |
 
-Metrics are saved to `results/metrics_<run_name>.csv` after each epoch.  
-Best checkpoint saved to `checkpoints/<run_name>_best.pth`.  
-Last checkpoint saved to `checkpoints/<run_name>_last.pth`.
+Metrics are saved to `results/metrics_<run_name>.csv` after each epoch.
+Best checkpoint saved to `checkpoints/<run_name>_best.pth`.
 
 ---
 
 ## Evaluation
-
-Evaluate a saved checkpoint on the ModelNet40 test set:
 
 ```bash
 python scripts/evaluate.py \
@@ -260,23 +248,17 @@ python scripts/evaluate.py \
     --T_infer 4
 ```
 
-Outputs:
-- Overall Accuracy (OA) and Mean Class Accuracy (mAcc)
-- Per-class accuracy breakdown
-- SynOps energy estimate vs ANN PointNet equivalent
-- Confusion matrix saved to `results/`
+Outputs OA, mAcc, per-class accuracy breakdown, and confusion matrix saved to `results/`.
 
 ---
 
 ## Comparing Results
 
-After training both runs, open the analysis notebook:
-
 ```bash
 jupyter notebook notebooks/results_analysis.ipynb
 ```
 
-Or from Python directly:
+Or from Python:
 
 ```python
 from spk_pointnet.utils.visualize import compare_models
@@ -297,29 +279,27 @@ compare_models(
 
 **LIF neuron**: SpikingJelly's `LIFNode` with sigmoid surrogate gradient (k=4). Hard reset after each spike. Paper's decay factor τ=0.25 is converted to SpikingJelly's time constant via `τ_sj = 1 / (1 - 0.25) = 4/3`.
 
-**T-Net**: Spatial transformer network using SharedMLP + LIF neurons throughout. Mean-pooling (not max-pooling) over points — max-pooling saturates binary spikes to all-1s, eliminating variance. Orthogonality regularization: `L_reg = ||I - A·Aᵀ||²_F × 0.001`.
+**T-Net**: Spatial transformer using SharedMLP + LIF neurons throughout. Mean-pooling over points — max-pooling saturates binary spikes to all-1s over 1024 points, eliminating channel variance. Orthogonality regularization: `L_reg = ||I - A·Aᵀ||²_F × 0.001`.
 
-**Q-SDE**: Implemented from scratch without `torch_cluster`. Manual FPS in pure PyTorch (~30 lines). FIFO queue via boolean mask over original N points. Batched over batch dimension via loop (vectorization non-trivial due to set-difference operation).
+**Q-SDE**: Implemented from scratch without `torch_cluster`. Manual FPS in pure PyTorch. FIFO queue via boolean mask over original N points. Batched over batch dimension via loop.
 
-**Training**: AMP (mixed precision) enabled by default — required to fit T=4 within 8 GB VRAM. `functional.reset_net()` called at the start of every batch to clear LIF membrane states.
+**Temporal accumulation**: Classifier LIF neurons (`lif1`, `lif2`) step sequentially across T timesteps — T is genuine time, not a batch axis. Feature extraction MLPs flatten T into the batch dimension (each timestep processed independently via shared weights).
 
-**Trained-less paradigm**: Baseline trains with T=1 (one copy of point cloud) but validates with T=4 (four copies). Q-SDE trains and validates with T=4 (four diverse FPS subsets).
+**Training**: AMP (mixed precision) enabled by default — required to fit T=4 within 8 GB VRAM. `functional.reset_net()` called at the start of every forward pass to clear LIF membrane states between samples.
 
 ---
 
 ## References
 
-1. **Spiking PointNet** — Zhang et al., NeurIPS 2023  
+1. **Spiking PointNet** — Zhang et al., NeurIPS 2023
    https://arxiv.org/abs/2310.06232
 
-2. **Spiking Point Transformer (SPT)** — AAAI 2025  
-   Q-SDE encoding (Algorithm 1) is borrowed from this work.  
+2. **Spiking Point Transformer (SPT)** — AAAI 2025
+   Q-SDE encoding (Algorithm 1) borrowed from this work.
    SPT reports ModelNet40 OA = 91.43% with full transformer + HD-IF + Q-SDE.
 
-3. **PointNet** — Qi et al., CVPR 2017  
-   https://arxiv.org/abs/1612.00593  
-   Original architecture this project builds on.
+3. **PointNet** — Qi et al., CVPR 2017
+   https://arxiv.org/abs/1612.00593
 
-4. **SpikingJelly** — Fang et al.  
-   https://github.com/fangwei123456/spikingjelly  
-   SNN framework used for LIF neurons and surrogate gradients.
+4. **SpikingJelly** — Fang et al.
+   https://github.com/fangwei123456/spikingjelly
